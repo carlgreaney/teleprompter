@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="Speech-following teleprompter. Your script never leaves your device.">
+<title>Teleprompter</title>
+<style>
+:root{--bg:#0f1115;--panel:#181b22;--fg:#e8eaf0;--dim:#6b7385;--done:#4b5367;--accent:#ffd54a;--green:#35d07f;--red:#ff5c5c;--fs:34px;--safe-b:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:1100px;margin:0 auto}
+header{display:flex;align-items:center;gap:10px;padding:8px 14px;min-height:48px}
+header h1{font-size:16px;margin:0;font-weight:600;color:var(--dim);flex:1}
+#status{font-size:14px;padding:6px 12px;border-radius:99px;background:var(--panel);color:var(--dim);min-height:32px;display:flex;align-items:center}
+#status.live{color:var(--green)} #status.err{color:var(--red)}
+[hidden]{display:none!important}
+button,.btn{font:inherit;color:var(--fg);background:var(--panel);border:1px solid #2a2f3a;border-radius:14px;min-height:48px;min-width:48px;padding:0 18px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:17px}
+button:active,.btn:active{filter:brightness(1.3)}
+.primary{background:var(--accent);color:#1a1500;border-color:var(--accent);font-weight:700}
+/* setup */
+#setup{flex:1;display:flex;flex-direction:column;gap:14px;padding:14px;overflow:auto}
+#setup.hidden,#reader.hidden,#bar.hidden{display:none}
+#upload{min-height:72px;font-size:22px}
+#drop{display:none}
+#paste{flex:1;min-height:140px;width:100%;resize:none;background:var(--panel);color:var(--fg);border:1px solid #2a2f3a;border-radius:14px;padding:14px;font:inherit;font-size:17px}
+.or{text-align:center;color:var(--dim);font-size:14px}
+#a2hs{text-align:center;color:var(--dim);font-size:13px;display:flex;flex-direction:column;gap:8px;align-items:center}#a2hs[hidden]{display:none}
+#hint{color:var(--dim);font-size:13px;line-height:1.4;text-align:center}
+/* reader */
+#reader{flex:1;overflow-y:auto;overflow-x:hidden;padding:42vh 18px 42vh;font-size:var(--fs);line-height:1.5;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#reader p{margin:0 0 .9em}
+.w{color:var(--fg);border-radius:6px;padding:0 1px;transition:color .15s,background .15s}
+.w.done{color:var(--done)}
+.w.cur{background:var(--accent);color:#1a1500}
+/* bottom bar */
+#bar{display:flex;gap:10px;padding:10px 12px calc(10px + var(--safe-b));background:var(--bg);border-top:1px solid #20242e;align-items:stretch}
+#go{flex:1;min-height:64px;font-size:24px;font-weight:700;background:var(--green);border-color:var(--green);color:#04210f}
+#go.on{background:var(--red);border-color:var(--red);color:#fff}
+/* settings sheet */
+#sheet{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;justify-content:center;z-index:5}
+#sheet.open{display:flex}
+#sheet .in{background:var(--panel);width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + var(--safe-b));display:flex;flex-direction:column;gap:12px}
+#sheet .row{display:flex;gap:10px;align-items:center;justify-content:space-between}
+#sheet select{min-height:48px;font-size:16px;background:var(--bg);color:var(--fg);border:1px solid #2a2f3a;border-radius:12px;padding:0 10px;max-width:60%}
+@media (min-width:800px){:root{--fs:44px}#reader{padding-left:40px;padding-right:40px}}
+@media (max-width:480px){header h1{display:none}#status{flex:1}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Teleprompter</h1>
+    <div id="status">Ready</div>
+    <button id="gear" aria-label="Settings">⚙</button>
+  </header>
+
+  <section id="setup">
+    <button id="upload" class="primary">📄 Upload script</button>
+    <input id="file" type="file" accept=".txt,.md,.markdown,.text,.docx,text/plain,text/markdown" hidden>
+    <div class="or">or paste your script</div>
+    <textarea id="paste" placeholder="Paste your script here…" spellcheck="false"></textarea>
+    <div style="display:flex;gap:10px"><button id="usepaste" class="primary" style="min-height:56px;flex:1">Use pasted script</button><button id="clear" style="min-height:56px">Clear</button></div>
+    <div id="hint"></div>
+    <div id="a2hs" hidden><button id="install" hidden>⬇ Install app</button><span id="a2hstext"></span></div>
+  </section>
+
+  <main id="reader" class="hidden" tabindex="-1"></main>
+
+  <div id="bar" class="hidden">
+    <button id="newscript" aria-label="New script">📄</button>
+    <button id="go">▶ Start</button>
+    <button id="restart" aria-label="Back to top">⟲</button>
+  </div>
+</div>
+
+<div id="sheet"><div class="in">
+  <div class="row"><span>Text size</span><span><button id="fsm">A−</button> <button id="fsp">A+</button></span></div>
+  <div class="row"><span>Language</span>
+    <select id="lang">
+      <option value="en-AU">English (Australia)</option><option value="en-NZ">English (NZ)</option>
+      <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option>
+      <option value="es-ES">Español</option><option value="fr-FR">Français</option><option value="de-DE">Deutsch</option>
+    </select></div>
+  <div class="row"><span>Tip: tap any word to jump there.</span></div>
+  <button id="closesheet" class="primary">Done</button>
+</div></div>
+
+<script src="lib/matcher.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const store = { get:(k,d)=>{try{return localStorage.getItem(k)??d}catch(e){return d}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}} };
+
+/* ---------- state ---------- */
+let words = [];          // [{el, n}] normalized
+let M = KaraokeMatcher.createMatcher([]);
+let pos = 0;             // mirror of M.pos
+let running = false;     // user wants listening
+let rec = null, recAlive = false, restartTimer = null, errCount = 0, lastStart = 0;
+let wakeLock = null;
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const norm = s => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\p{L}\p{N}]+/gu,'');
+
+/* ---------- status ---------- */
+function status(t, cls){ const s=$('status'); s.textContent=t; s.className=cls||''; }
+(function initHint(){
+  let h='';
+  if(!SR) h='Speech recognition isn\'t supported in this browser. Use Chrome (desktop or Android).';
+  else if(!window.isSecureContext) h='⚠ This page isn\'t a secure context (needs https:// or localhost), so the microphone will be blocked.';
+  $('hint').textContent=h||'Your script stays on this device. Only Chrome\'s own speech service hears your voice.';
+  if(!SR||!window.isSecureContext) status(SR?'Not secure':'No speech support','err');
+})();
+
+/* ---------- script loading ---------- */
+function buildReader(text){
+  const reader=$('reader'); reader.textContent=''; words=[]; pos=0;
+  const paras=text.replace(/\r\n?/g,'\n').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const frag=document.createDocumentFragment();
+  for(const para of paras){
+    const p=document.createElement('p');
+    para.split(/\s+/).forEach((tok,i,arr)=>{
+      const sp=document.createElement('span'); sp.className='w'; sp.textContent=tok; sp.dataset.i=words.length;
+      words.push({el:sp,n:norm(tok)}); p.appendChild(sp); if(i<arr.length-1)p.appendChild(document.createTextNode(' '));
+    });
+    frag.appendChild(p);
+  }
+  reader.appendChild(frag);
+  if(!words.length){status('Script is empty','err');return false;}
+  M=KaraokeMatcher.createMatcher(words.map(w=>w.n)); pos=M.pos; paint(true);
+  $('setup').classList.add('hidden'); reader.classList.remove('hidden'); $('bar').classList.remove('hidden');
+  reader.scrollTop=0; status('Ready'); return true;
+}
+function loadText(text){ store.set('script',text); buildReader(text); }
+
+async function readFile(f){
+  try{
+    const name=f.name.toLowerCase(); let text;
+    if(name.endsWith('.docx')) text=await docxToText(await f.arrayBuffer());
+    else text=await f.text();
+    if(name.endsWith('.md')||name.endsWith('.markdown')) text=text.replace(/^\s{0,3}#{1,6}\s*/gm,'').replace(/[*_`>]+/g,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1');
+    if(!text.trim()) throw new Error('No text found in that file');
+    loadText(text);
+  }catch(e){ status('Could not read file','err'); alert('Could not read that file: '+e.message); }
+}
+/* .docx = zip; pull word/document.xml with the browser's built-in DecompressionStream (no libraries) */
+async function docxToText(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  let eocd=-1; for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-66000);i--){ if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error('Not a valid .docx');
+  const n=dv.getUint16(eocd+10,true); let p=dv.getUint32(eocd+16,true);
+  for(let k=0;k<n;k++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true), nl=dv.getUint16(p+28,true), el=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true), off=dv.getUint32(p+42,true);
+    const nm=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));
+    if(nm==='word/document.xml'){
+      const lnl=dv.getUint16(off+26,true), lel=dv.getUint16(off+28,true), start=off+30+lnl+lel;
+      let data=u8.subarray(start,start+csize);
+      if(method===8){ data=new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()); }
+      else if(method!==0) throw new Error('Unsupported compression');
+      const xml=new TextDecoder().decode(data);
+      const doc=new DOMParser().parseFromString(xml,'application/xml');
+      const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+      return [...doc.getElementsByTagNameNS(W,'p')].map(par=>{
+        let s=''; const walk=nd=>{ for(const c of nd.childNodes){ if(c.nodeType!==1)continue; const ln=c.localName;
+          if(ln==='t') s+=c.textContent; else if(ln==='tab') s+=' '; else if(ln==='br') s+=' '; else walk(c);} };
+        walk(par); return s;}).join('\n');
+    }
+    p+=46+nl+el+cl;
+  }
+  throw new Error('word/document.xml not found');
+}
+
+$('upload').onclick=()=>$('file').click();
+$('file').onchange=e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=''; };
+$('clear').onclick=()=>{ $('paste').value=''; store.set('script',''); try{localStorage.removeItem('script')}catch(e){} status('Cleared'); $('paste').focus(); };
+$('usepaste').onclick=()=>{ const t=$('paste').value; if(t.trim()) loadText(t); else status('Paste some text first','err'); };
+addEventListener('dragover',e=>e.preventDefault());
+addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer&&e.dataTransfer.files[0]; if(f) readFile(f); });
+$('newscript').onclick=()=>{ stop(); $('reader').classList.add('hidden'); $('bar').classList.add('hidden'); $('setup').classList.remove('hidden'); $('paste').value=store.get('script',''); status('Ready'); };
+$('restart').onclick=()=>{ M.reset(0); pos=M.pos; words.forEach(w=>w.el.classList.remove('done','cur')); lastCur=-1; paint(true); $('reader').scrollTop=0; };
+
+/* ---------- highlighting + scroll ---------- */
+let lastCur=-1;
+function paint(forceScroll){
+  const from=Math.min(lastCur<0?0:lastCur, pos);
+  for(let i=from;i<words.length;i++){
+    const el=words[i].el, isDone=i<pos, isCur=i===pos;
+    el.classList.toggle('done',isDone); el.classList.toggle('cur',isCur&&pos<words.length);
+    if(i>pos+1) break;
+  }
+  lastCur=pos;
+  if(pos<words.length) centre(words[pos].el, forceScroll);
+  if(pos>=words.length){ status('Finished 🎉','live'); }
+}
+function centre(el,instant){
+  const r=$('reader'); const target=el.offsetTop-r.clientHeight/2+el.offsetHeight/2;
+  r.scrollTo({top:Math.max(0,target),behavior:instant?'auto':'smooth'});
+}
+$('reader').addEventListener('click',e=>{ const w=e.target.closest('.w'); if(!w)return; setPos(+w.dataset.i); });
+function setPos(i){ // full repaint
+  pos=Math.max(0,Math.min(words.length,i)); words.forEach((w,k)=>{w.el.classList.toggle('done',k<pos);w.el.classList.toggle('cur',k===pos);}); lastCur=pos; M.setPos(pos,curSessionLen); if(pos<words.length)centre(words[pos].el,false);
+}
+
+/* ---------- matching (logic lives in lib/matcher.js) ---------- */
+let curSessionLen=0;
+function feed(spoken){ curSessionLen=spoken.length; if(M.feed(spoken)){ pos=M.pos; paint(false); } }
+
+/* ---------- speech (robust auto-restart) ---------- */
+function mk(){
+  const r=new SR(); r.continuous=true; r.interimResults=true; r.maxAlternatives=1; r.lang=$('lang').value;
+  r.onstart=()=>{ if(rec!==r)return; recAlive=true; M.processed=0; curSessionLen=0; status('Listening…','live'); };
+  r.onresult=e=>{ if(rec!==r)return;
+    errCount=0; let t=''; for(let i=0;i<e.results.length;i++) t+=' '+e.results[i][0].transcript;
+    feed(t.trim().split(/\s+/).map(norm));
+  };
+  r.onerror=e=>{ if(rec!==r)return;
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){ running=false; status('Mic blocked — allow microphone','err'); ui(); releaseWake(); return; }
+    if(e.error==='audio-capture'){ status('No microphone found','err'); }
+    errCount++;   // no-speech / aborted / network: just let onend restart us
+  };
+  r.onend=()=>{ if(rec!==r)return; recAlive=false; if(running) scheduleRestart(); };
+  return r;
+}
+function scheduleRestart(){
+  clearTimeout(restartTimer);
+  const delay=Math.min(2000,120+errCount*250);
+  restartTimer=setTimeout(()=>{ if(running) begin(); },delay);
+}
+function begin(){
+  if(!running||recAlive) return;
+  try{ const r=mk(); rec=r; lastStart=Date.now(); r.start(); recAlive=true; }
+  catch(e){ recAlive=false; errCount++; scheduleRestart(); }
+}
+setInterval(()=>{ if(running && !recAlive){ begin(); } },1500);   // watchdog
+function start(){
+  if(!SR){ status('No speech support','err'); return; }
+  if(!window.isSecureContext){ status('Needs https or localhost','err'); return; }
+  if(!words.length) return;
+  running=true; errCount=0; status('Starting…'); ui(); begin(); getWake();
+}
+function stop(){ running=false; clearTimeout(restartTimer); try{rec&&rec.abort();}catch(e){} recAlive=false; if(words.length&&pos<words.length) status('Paused'); ui(); releaseWake(); }
+function ui(){ const g=$('go'); g.classList.toggle('on',running); g.textContent=running?'■ Stop':'▶ Start'; }
+$('go').onclick=()=>running?stop():start();
+$('lang').onchange=()=>{ store.set('lang',$('lang').value); if(running){ try{rec.abort();}catch(e){} } };
+
+/* ---------- wake lock ---------- */
+async function getWake(){
+  try{ if('wakeLock' in navigator && !wakeLock && document.visibilityState==='visible'){ wakeLock=await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>{wakeLock=null;}); } }catch(e){}
+}
+function releaseWake(){ try{wakeLock&&wakeLock.release();}catch(e){} wakeLock=null; }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&running){ getWake(); if(!recAlive) begin(); } });
+
+/* ---------- settings ---------- */
+let fs=+store.get('fs',0)||0;
+function applyFs(){ if(fs) document.documentElement.style.setProperty('--fs',fs+'px'); if(pos<words.length&&words.length) centre(words[pos]?words[pos].el:words[0].el,true); }
+function curFs(){ return fs||parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs'))||34; }
+$('fsp').onclick=()=>{ fs=Math.min(96,curFs()+4); store.set('fs',fs); applyFs(); };
+$('fsm').onclick=()=>{ fs=Math.max(18,curFs()-4); store.set('fs',fs); applyFs(); };
+$('gear').onclick=()=>$('sheet').classList.add('open');
+$('closesheet').onclick=()=>$('sheet').classList.remove('open');
+$('sheet').onclick=e=>{ if(e.target.id==='sheet') $('sheet').classList.remove('open'); };
+$('lang').value=store.get('lang',[...$('lang').options].some(o=>o.value===navigator.language)?navigator.language:'en-AU');
+applyFs();
+$('paste').value=store.get('script','');
+
+/* ---------- PWA: offline shell + Add to Home screen ---------- */
+if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
+  addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+let deferred=null;
+if(!standalone){
+  const box=$('a2hs'), t=$('a2hstext'); box.hidden=false;
+  t.textContent=/android/i.test(navigator.userAgent)?'Tip: Chrome menu ⋮ → "Add to Home screen" (or "Install app") to use it full-screen and offline.':'Tip: install it from the browser menu (⋮ → Install / Add to Home screen) to use it full-screen and offline.';
+  addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferred=e; $('install').hidden=false; });
+  $('install').onclick=async()=>{ if(!deferred)return; deferred.prompt(); await deferred.userChoice; deferred=null; $('install').hidden=true; };
+  addEventListener('appinstalled',()=>{ box.hidden=true; });
+}
+})();
+</script>
+</body>
+</html>
